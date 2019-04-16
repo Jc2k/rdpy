@@ -79,10 +79,10 @@ class HoneyPotServer(rdp.RDPServerObserver):
         \thostname : %s
         """%(domain, username, password, hostname));
 
-        self.domain = domain
-        self.username = username
-        self.password = password
-        self.hostname = hostname
+        self.domain = domain.rstrip('\x00')
+        self.username = username.rstrip('\x00')
+        self.password = password.rstrip('\x00')
+        self.hostname = hostname.rstrip('\x00')
         self.start()
         
     def onClose(self):
