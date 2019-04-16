@@ -212,6 +212,8 @@ class RawLayer(protocol.Protocol, LayerAutomata, IStreamSender):
         """
         @summary: inherit from twisted protocol
         """
+        self.source = self.transport.getPeer()
+        self.destination = self.transport.getHost()
         #join two scheme
         self.connect()
         

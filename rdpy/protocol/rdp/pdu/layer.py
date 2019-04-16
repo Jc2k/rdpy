@@ -531,7 +531,7 @@ class Server(PDULayer):
             log.debug("Receive Shutdown Request")
             self._transport.close()
             
-    def recvFastPath(self, fastPathS):
+    def recvFastPath(self, secFlag, fastPathS):
         """
         @summary: Implement IFastPathListener interface
         Fast path is needed by RDP 8.0

@@ -22,16 +22,18 @@
 RDP Honey pot use Rss scenario file to simulate RDP server
 """
 
-import sys, os, getopt, time
+import sys, os, getopt, time, datetime, json
 
 from rdpy.core import log, error, rss
 from rdpy.protocol.rdp import rdp
 from twisted.internet import reactor
 
+from hpfeeds.twisted import ClientSessionService
+
 log._LOG_LEVEL = log.Level.INFO
 
 class HoneyPotServer(rdp.RDPServerObserver):
-    def __init__(self, controller, rssFileSizeList):
+    def __init__(self, controller, rssFileSizeList, addr, reporter):
         """
         @param controller: {RDPServerController}
         @param rssFileSizeList: {Tuple} Tuple(Tuple(width, height), rssFilePath)
@@ -40,7 +42,18 @@ class HoneyPotServer(rdp.RDPServerObserver):
         self._rssFileSizeList = rssFileSizeList
         self._dx, self._dy = 0, 0
         self._rssFile = None
-        
+        self.addr = addr
+        self.reporter = reporter
+
+        self.domain = None
+        self.username = None
+        self.password = None
+        self.hostname = None
+        self.event_codes = []
+        self.event_keys = []
+
+        self.start_time = datetime.datetime.utcnow().isoformat()
+
     def onReady(self):
         """
         @summary:  Event use to inform state of server stack
@@ -65,17 +78,44 @@ class HoneyPotServer(rdp.RDPServerObserver):
         \tpassword : %s
         \thostname : %s
         """%(domain, username, password, hostname));
+
+        self.domain = domain
+        self.username = username
+        self.password = password
+        self.hostname = hostname
         self.start()
         
     def onClose(self):
         """ HoneyPot """
-        
+        protocol = self._controller.getProtocol()
+
+        payload = json.dumps({
+            'session_start': self.start_time,
+            'session_finish': datetime.datetime.utcnow().isoformat(),
+            'src_ip': protocol.source.host,
+            'src_port': protocol.source.port,
+            'dest_ip': protocol.destination.host,
+            'dest_port': protocol.destination.port,
+            'username': self.username,
+            'password': self.password,
+            'domain': self.domain,
+            'hostname': self.hostname,
+            'event_codes': self.event_codes,
+            'event_keys': self.event_keys,
+        })
+
+        print payload
+
+        self.reporter.publish("rdpy", payload)
+
     def onKeyEventScancode(self, code, isPressed, isExtended):
         """ HoneyPot """
+        self.event_codes.append(code)
     
     def onKeyEventUnicode(self, code, isPressed):
         """ HoneyPot """
-        
+        self.event_keys.append(code)
+
     def onPointerEvent(self, x, y, button, isPressed):
         """ HoneyPot """
         
@@ -118,7 +158,18 @@ class HoneyPotServerFactory(rdp.ServerFactory):
         """
         rdp.ServerFactory.__init__(self, 16, privateKeyFilePath, certificateFilePath)
         self._rssFileSizeList = rssFileSizeList
-        
+
+        self.reporter = ClientSessionService(
+            'tcp:host={host}:port={port}:timeout=15'.format(
+                host=os.environ['HPFEEDS_SERVER'],
+                port=os.environ['HPFEEDS_PORT'],
+            ),
+            os.environ['HPFEEDS_IDENT'],
+            os.environ['HPFEEDS_SECRET'],
+        )
+        self.reporter.startService()
+        self.reporter.whenConnected.addCallback(log.info)
+
     def buildObserver(self, controller, addr):
         """
         @param controller: {rdp.RDPServerController}
@@ -126,8 +177,8 @@ class HoneyPotServerFactory(rdp.ServerFactory):
         @see: rdp.ServerFactory.buildObserver
         """
         log.info("Connection from %s:%s"%(addr.host, addr.port))
-        return HoneyPotServer(controller, self._rssFileSizeList)
-    
+        return HoneyPotServer(controller, self._rssFileSizeList, addr, self.reporter)
+
 def readSize(filePath):
     """
     @summary: read size event in rss file
